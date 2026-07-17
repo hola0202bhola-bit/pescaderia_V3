@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useState, ReactNode, useEffect } from "react";
 
 export type DishCategory = "Entradas" | "Platos Fuertes" | "Bebidas" | "Postres";
 
@@ -30,6 +30,11 @@ export interface Order {
   paymentMethod: string;
   status: "completado" | "pendiente" | "cancelado";
   table?: string;
+  clientName?: string;
+  clientPhone?: string;
+  clientAddress?: string;
+  notes?: string;
+  orderType: "local" | "llevar" | "uber" | "rappi";
 }
 
 export type TableStatus = "libre" | "ocupado" | "reservado";
@@ -57,6 +62,30 @@ export interface Insumo {
   unit: string;
 }
 
+export type UserRole = "administrador" | "cajera" | "mesero";
+
+export interface Cliente {
+  id: string;
+  name: string;
+  phone: string;
+  address: string;
+}
+
+export interface Gasto {
+  id: string;
+  description: string;
+  amount: number;
+  category: string;
+  date: string;
+}
+
+export interface Abono {
+  id: string;
+  clientName: string;
+  amount: number;
+  date: string;
+}
+
 interface AppContextType {
   // Cart
   cartItems: CartItem[];
@@ -68,9 +97,20 @@ interface AppContextType {
   cartCount: number;
   // Orders
   orders: Order[];
+  setOrders: React.Dispatch<React.SetStateAction<Order[]>>;
   placeOrder: (paymentMethod: string, table?: string) => void;
+  placeOrderDetailed: (params: {
+    paymentMethod: string;
+    table?: string;
+    clientName?: string;
+    clientPhone?: string;
+    clientAddress?: string;
+    notes?: string;
+    orderType: "local" | "llevar" | "uber" | "rappi";
+  }) => void;
   // Dishes
   dishes: Dish[];
+  setDishes: React.Dispatch<React.SetStateAction<Dish[]>>;
   addDish: (dish: Omit<Dish, "id" | "recommended">) => void;
   updateDish: (id: string, updatedFields: Partial<Dish>) => void;
   removeDish: (id: string) => void;
@@ -78,14 +118,31 @@ interface AppContextType {
   toggleRecommended: (id: string) => void;
   // Tables
   tables: Table[];
+  setTables: React.Dispatch<React.SetStateAction<Table[]>>;
   addTable: (table: Omit<Table, "status">) => void;
   updateTable: (id: string, updatedFields: Partial<Table>) => void;
   removeTable: (id: string) => void;
   // Insumos
   insumos: Insumo[];
+  setInsumos: React.Dispatch<React.SetStateAction<Insumo[]>>;
   addInsumo: (insumo: Omit<Insumo, "id">) => void;
   updateInsumo: (id: string, updatedFields: Partial<Insumo>) => void;
   removeInsumo: (id: string) => void;
+  // Roles & Theme
+  userRole: UserRole;
+  setUserRole: (role: UserRole) => void;
+  theme: "light" | "dark";
+  setTheme: (theme: "light" | "dark") => void;
+  // Clientes
+  clientes: Cliente[];
+  addCliente: (cliente: Omit<Cliente, "id">) => void;
+  updateCliente: (id: string, updatedFields: Partial<Cliente>) => void;
+  // Gastos
+  gastos: Gasto[];
+  addGasto: (gasto: Omit<Gasto, "id" | "date">) => void;
+  // Abonos
+  abonos: Abono[];
+  addAbono: (abono: Omit<Abono, "id" | "date">) => void;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -129,9 +186,10 @@ const sampleOrders: Order[] = [
       { id: "7", name: "Agua de Horchata", price: 35.00, quantity: 1, image: "https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=400&h=300&fit=crop", category: "Bebidas" },
     ],
     total: 373.00,
-    paymentMethod: "Tarjeta de Crédito",
+    paymentMethod: "Tarjeta de Crédito/Débito",
     status: "completado",
     table: "A2",
+    orderType: "local",
   },
   {
     id: "ORD-002",
@@ -144,6 +202,7 @@ const sampleOrders: Order[] = [
     paymentMethod: "Efectivo",
     status: "completado",
     table: "B3",
+    orderType: "local",
   },
   {
     id: "ORD-003",
@@ -152,9 +211,10 @@ const sampleOrders: Order[] = [
       { id: "4", name: "Filete al Mojo de Ajo", price: 189.00, quantity: 1, image: "https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?w=400&h=300&fit=crop", category: "Platos Fuertes" },
     ],
     total: 189.00,
-    paymentMethod: "Transferencia Bancaria",
+    paymentMethod: "Tarjeta de Crédito/Débito",
     status: "pendiente",
     table: "C1",
+    orderType: "local",
   },
 ];
 
@@ -166,12 +226,43 @@ const initialInsumos: Insumo[] = [
   { id: "i5", name: "Sal de Grano", stockActual: 1.2, stockMinimo: 2, unit: "kg" },
 ];
 
+const initialClientes: Cliente[] = [
+  { id: "c1", name: "Juan Pérez", phone: "5551234567", address: "Av. Marina 123, Col. Centro" },
+  { id: "c2", name: "María Gómez", phone: "5559876543", address: "Calle Acuario 45, Fracc. Las Olas" },
+  { id: "c3", name: "Carlos López", phone: "5554567890", address: "Blvd. Costero 789, Depto 4" },
+];
+
+const initialGastos: Gasto[] = [
+  { id: "g1", description: "Compra de Tortillas (Proveedor)", amount: 350.00, category: "Materia Prima", date: "2026-07-10T11:00:00" },
+  { id: "g2", description: "Refrescos Coca-Cola (Distribuidora)", amount: 1200.00, category: "Bebidas", date: "2026-07-10T12:30:00" },
+  { id: "g3", description: "Cerveza Corona (Modelo)", amount: 2500.00, category: "Bebidas", date: "2026-07-10T14:00:00" },
+];
+
+const initialAbonos: Abono[] = [
+  { id: "a1", clientName: "Felipe Soto (Fiado)", amount: 500.00, date: "2026-07-10T13:15:00" },
+];
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [orders, setOrders] = useState<Order[]>(sampleOrders);
   const [dishes, setDishes] = useState<Dish[]>(initialDishes);
   const [tables, setTables] = useState<Table[]>(initialTables);
   const [insumos, setInsumos] = useState<Insumo[]>(initialInsumos);
+  const [userRole, setUserRole] = useState<UserRole>("administrador");
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
+  const [clientes, setClientes] = useState<Cliente[]>(initialClientes);
+  const [gastos, setGastos] = useState<Gasto[]>(initialGastos);
+  const [abonos, setAbonos] = useState<Abono[]>(initialAbonos);
+
+  // Sync theme with HTML class
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (theme === "dark") {
+      root.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+    }
+  }, [theme]);
 
   const addToCart = (item: Omit<CartItem, "quantity">) => {
     setCartItems((prev) => {
@@ -195,17 +286,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const cartCount = cartItems.reduce((sum, i) => sum + i.quantity, 0);
 
   const placeOrder = (paymentMethod: string, table?: string) => {
+    placeOrderDetailed({
+      paymentMethod,
+      table,
+      orderType: table ? "local" : "llevar",
+    });
+  };
+
+  const placeOrderDetailed = (params: {
+    paymentMethod: string;
+    table?: string;
+    clientName?: string;
+    clientPhone?: string;
+    clientAddress?: string;
+    notes?: string;
+    orderType: "local" | "llevar" | "uber" | "rappi";
+  }) => {
     if (cartItems.length === 0) return;
     const order: Order = {
       id: `ORD-${String(orders.length + 1).padStart(3, "0")}`,
       date: new Date().toISOString(),
       items: [...cartItems],
       total: cartTotal,
-      paymentMethod,
-      status: "completado",
-      table,
+      paymentMethod: params.paymentMethod,
+      status: "pendiente", // Pasa a cocina de inmediato
+      table: params.table,
+      clientName: params.clientName,
+      clientPhone: params.clientPhone,
+      clientAddress: params.clientAddress,
+      notes: params.notes,
+      orderType: params.orderType,
     };
     setOrders((prev) => [order, ...prev]);
+
+    // Ocupar mesa de forma automática si es un pedido en local
+    if (params.table && params.orderType === "local") {
+      setTables((prev) =>
+        prev.map((t) => (t.id === params.table ? { ...t, status: "ocupado", time: "00:01 h" } : t))
+      );
+    }
+
     clearCart();
   };
 
@@ -276,6 +396,44 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setInsumos((prev) => prev.filter((i) => i.id !== id));
   };
 
+  const addCliente = (cliente: Omit<Cliente, "id">) => {
+    setClientes((prev) => [
+      ...prev,
+      {
+        ...cliente,
+        id: `c${prev.length > 0 ? Math.max(...prev.map((c) => parseInt(c.id.replace(/\D/g, "")) || 0)) + 1 : 1}`,
+      },
+    ]);
+  };
+
+  const updateCliente = (id: string, updatedFields: Partial<Cliente>) => {
+    setClientes((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, ...updatedFields } : c))
+    );
+  };
+
+  const addGasto = (gasto: Omit<Gasto, "id" | "date">) => {
+    setGastos((prev) => [
+      ...prev,
+      {
+        ...gasto,
+        id: `g${prev.length > 0 ? Math.max(...prev.map((g) => parseInt(g.id.replace(/\D/g, "")) || 0)) + 1 : 1}`,
+        date: new Date().toISOString(),
+      },
+    ]);
+  };
+
+  const addAbono = (abono: Omit<Abono, "id" | "date">) => {
+    setAbonos((prev) => [
+      ...prev,
+      {
+        ...abono,
+        id: `a${prev.length > 0 ? Math.max(...prev.map((a) => parseInt(a.id.replace(/\D/g, "")) || 0)) + 1 : 1}`,
+        date: new Date().toISOString(),
+      },
+    ]);
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -287,21 +445,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
         cartTotal,
         cartCount,
         orders,
+        setOrders,
         placeOrder,
+        placeOrderDetailed,
         dishes,
+        setDishes,
         addDish,
         updateDish,
         removeDish,
         toggleAvailable,
         toggleRecommended,
         tables,
+        setTables,
         addTable,
         updateTable,
         removeTable,
         insumos,
+        setInsumos,
         addInsumo,
         updateInsumo,
         removeInsumo,
+        userRole,
+        setUserRole,
+        theme,
+        setTheme,
+        clientes,
+        addCliente,
+        updateCliente,
+        gastos,
+        addGasto,
+        abonos,
+        addAbono,
       }}
     >
       {children}
